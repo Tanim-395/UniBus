@@ -1,0 +1,102 @@
+// server/config/socket.js
+import { Server } from "socket.io";
+
+let io;
+
+export const initSocket = (server) => {
+  io = new Server(server, {
+    cors: {
+      origin: [
+        "http://localhost:5000",
+        "http://127.0.0.1:5000",
+        "https://uni-e7l7.onrender.com",
+        process.env.FRONTEND_URL,
+      ].filter(Boolean),
+      methods: ["GET", "POST"],
+      credentials: true,
+    },
+  });
+
+  io.on("connection", (socket) => {
+    console.log(`🔌 User connected: ${socket.id}`);
+
+    socket.on("join-trip", (tripId) => {
+      socket.join(`trip-${tripId}`);
+      console.log(`📍 ${socket.id} joined trip-${tripId}`);
+    });
+
+    socket.on("leave-trip", (tripId) => {
+      socket.leave(`trip-${tripId}`);
+      console.log(`📍 ${socket.id} left trip-${tripId}`);
+    });
+
+    socket.on("join-admin-room", () => {
+      socket.join("admins");
+      console.log(`👨‍💼 ${socket.id} joined admins room`);
+    });
+
+    // NEW: any user joins their personal room
+    socket.on("join-user", (userId) => {
+      if (!userId) return;
+      socket.join(`user-${userId}`);
+      console.log(`👤 ${socket.id} joined user-${userId}`);
+    });
+
+    socket.on("update-location", (data) => {
+      const { tripId, latitude, longitude } = data;
+      io.to(`trip-${tripId}`).emit("location-updated", {
+        tripId,
+        latitude,
+        longitude,
+        timestamp: new Date(),
+      });
+    });
+
+    socket.on("trip-status-update", (data) => {
+      const { tripId, ...rest } = data;
+      if (!tripId) return;
+
+      io.to(`trip-${tripId}`).emit("trip-status-changed", {
+        tripId,
+        ...rest,
+        timestamp: new Date(),
+      });
+
+      io.to("admins").emit("admin-trip-update", {
+        tripId,
+        ...rest,
+        timestamp: new Date(),
+      });
+    });
+
+    socket.on("driver-report", (data) => {
+      const { tripId } = data;
+      if (!tripId) return;
+
+      console.log(`📢 Driver report broadcast for trip ${tripId}:`, data);
+
+      io.to(`trip-${tripId}`).emit("driver-report-received", {
+        ...data,
+        timestamp: new Date(),
+      });
+
+      io.to("admins").emit("admin-driver-report", {
+        ...data,
+        timestamp: new Date(),
+      });
+    });
+
+    socket.on("disconnect", () => {
+      console.log(`🔌 User disconnected: ${socket.id}`);
+    });
+  });
+
+  return io;
+};
+
+export const getIO = () => {
+  if (!io) throw new Error("Socket.io not initialized!");
+  return io;
+};
+
+export default { initSocket, getIO };

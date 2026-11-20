@@ -1,0 +1,175 @@
+// server/routes/student.routes.js
+import express from "express";
+import { protect, authorize } from "../middleware/auth.middleware.js";
+import {
+  getClasses, addClass, updateClass, deleteClass,
+  findBuses, bookSeat, getBookings, getBookingDetails,
+  cancelBooking, bookReturnTrip,
+} from "../controllers/student.controller.js";
+import User from "../models/User.js";
+
+const router = express.Router();
+router.use(protect, authorize("student"));
+
+/* ==================== Classes ==================== */
+router.get("/classes", getClasses);
+router.post("/classes", addClass);
+router.put("/classes/:id", updateClass);
+router.delete("/classes/:id", deleteClass);
+
+/* ==================== Booking ==================== */
+router.post("/find-bus", findBuses);
+router.post("/book", bookSeat);
+router.post("/book/return", bookReturnTrip);
+
+router.get("/bookings", getBookings);
+router.get("/bookings/:id", getBookingDetails);
+router.put("/bookings/:id/cancel", cancelBooking);
+
+/* ============================================================
+   Helper — get the student's email from the session
+============================================================ */
+function getEmail(req) {
+  const u = req.user || {};
+  const email = u.email || u.user?.email || "";
+  return email.toLowerCase().trim();
+}
+
+/* ==================== GET /profile ==================== */
+router.get("/profile", async (req, res) => {
+  try {
+    const email = getEmail(req);
+    if (!email) {
+      return res.status(401).json({ success: false, message: "No email in session" });
+    }
+
+    // Bypass Mongoose — use raw collection (String _id safe)
+    const user = await User.collection.findOne({ email });
+
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found", email });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        name:       user.name       || "",
+        email:      user.email      || "",
+        studentId:  user.studentId  || "",
+        department: user.department || "",
+        year:       user.year       || "",
+        phone:      user.phone      || "",
+        address:    user.address    || "",
+        role:       user.role       || "student",
+        createdAt:  user.createdAt  || null,
+      },
+    });
+  } catch (err) {
+    console.error("GET student profile error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/* ==================== PUT /profile ==================== */
+router.put("/profile", async (req, res) => {
+  try {
+    const email = getEmail(req);
+    if (!email) {
+      return res.status(401).json({ success: false, message: "No email in session" });
+    }
+
+    const { name, phone, address, department, studentId, year } = req.body;
+    const updates = {};
+    if (name       !== undefined) updates.name       = name;
+    if (phone      !== undefined) updates.phone      = phone;
+    if (address    !== undefined) updates.address    = address;
+    if (department !== undefined) updates.department = department;
+    if (studentId  !== undefined) updates.studentId  = studentId;
+    if (year       !== undefined) updates.year       = year;
+
+    console.log("📝 PUT /profile — email:", email, "| updates:", updates);
+
+    // Bypass Mongoose entirely — raw collection update
+    const result = await User.collection.updateOne(
+      { email },
+      { $set: updates }
+    );
+
+    console.log("📝 PUT /profile result:", {
+      matched:  result.matchedCount,
+      modified: result.modifiedCount,
+    });
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "User not found", email });
+    }
+
+    res.json({
+      success: true,
+      message: "Profile updated",
+      matched:  result.matchedCount,
+      modified: result.modifiedCount,
+    });
+  } catch (err) {
+    console.error("PUT student profile error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/* ==================== GET /preferences ==================== */
+router.get("/preferences", async (req, res) => {
+  try {
+    const email = getEmail(req);
+    if (!email) {
+      return res.status(401).json({ success: false, message: "No email in session" });
+    }
+
+    const user = await User.collection.findOne({ email });
+    if (!user) {
+      return res.status(404).json({ success: false, message: "User not found", email });
+    }
+
+    res.json({
+      success: true,
+      data: {
+        year:        user.year        || "",
+        phone:       user.phone       || "",
+        address:     user.address     || "",
+        preferences: user.preferences || {},
+      },
+    });
+  } catch (err) {
+    console.error("GET preferences error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+/* ==================== PUT /preferences ==================== */
+router.put("/preferences", async (req, res) => {
+  try {
+    const email = getEmail(req);
+    if (!email) {
+      return res.status(401).json({ success: false, message: "No email in session" });
+    }
+
+    const { year, phone, address, preferences } = req.body;
+    const updates = {};
+    if (year        !== undefined) updates.year        = year;
+    if (phone       !== undefined) updates.phone       = phone;
+    if (address     !== undefined) updates.address     = address;
+    if (preferences !== undefined) updates.preferences = preferences;
+
+    const result = await User.collection.updateOne({ email }, { $set: updates });
+
+    if (result.matchedCount === 0) {
+      return res.status(404).json({ success: false, message: "User not found" });
+    }
+
+    res.json({ success: true, message: "Preferences updated" });
+  } catch (err) {
+    console.error("PUT preferences error:", err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
+export default router;
